@@ -145,7 +145,7 @@ def login():
         st.session_state["tentativa_login"] = False
 
     with st.form("login_form"):
-        st.markdown("## 🔐 Acesso Restrito")
+        st.markdown("## 🔐 Preencha suas credenciais de acesso")
         usuario = st.text_input("Usuário")
         senha = st.text_input("Senha", type="password")
         entrar = st.form_submit_button("Entrar")
@@ -195,7 +195,7 @@ def main():
             grupos_selecionados[grupo] = st.checkbox(grupo)
 
         with st.form("form_exames"):
-            st.markdown("### ✍️ Preencha os resultados:")
+            st.markdown("### ✍️ Preencha os resultados(somente valores sem ):")
             resultados = []
 
             for grupo, selecionado in grupos_selecionados.items():
@@ -209,7 +209,7 @@ def main():
                                 "result": resultado
                             })
 
-            enviado = st.form_submit_button("Salvar e Enviar para a API")
+            enviado = st.form_submit_button("Salvar e Enviar para o SynviaBio")
 
         if enviado:
             if not resultados:
@@ -221,7 +221,7 @@ def main():
                     "results": resultados
                 }]
 
-                st.info("📡 Enviando dados para a API...")
+                st.info("📡 Enviando dados para o SynviaBio...")
 
                 try:
                     response = requests.put(
