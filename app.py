@@ -164,10 +164,21 @@ def login():
 # App principal
 def main():
     st.title("🩺 Resultados de Exames do CDL")
-    cpf = st.text_input("CPF do PP (somente números)", max_chars=11)
 
-    if cpf:
+    cpf = None
+    par_exam_request = None
+    erro = None
+    service_order = None
+
+    with st.form("form_cpf"):
+        st.markdown("### 🔎 Buscar Exames")
+        cpf_input = st.text_input("CPF do PP (somente números)", max_chars=11)
+        buscar = st.form_submit_button("Buscar")
+
+    if buscar:
+        cpf = cpf_input
         par_exam_request, erro = get_par_exam_request(cpf)
+
         if erro:
             st.error(erro)
             st.stop()
@@ -237,9 +248,9 @@ def main():
                 except Exception as e:
                     st.error(f"Erro de comunicação com a API: {str(e)}")
 
-                st.stop()
+            st.stop()
     else:
-        st.info("🔐 Por favor, insira o CPF e aperte Enter ↵ para continuar.")
+        st.info("🔐 Por favor, insira o CPF e clique em 'Buscar' para continuar.")
 
 # Controle de sessão
 if "logado" not in st.session_state:
