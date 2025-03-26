@@ -1,7 +1,10 @@
 import streamlit as st
-import pandas as pd
+import mysql.connector
+import random
+import requests
+import json
 
-# Lista de exames (adicione os demais conforme necessário)
+# Lista de exames
 EXAMES = [
     {"ID": "69347473316204", "Grupo": "BETA-HCG", "Nome": "BETA HCG"},
     {"ID": "161308206689966", "Grupo": "BIOQUÍMICA", "Nome": "FOSFATASE ALCALINA"},
@@ -80,22 +83,109 @@ for exame in EXAMES:
     grupo = exame["Grupo"]
     exames_por_grupo.setdefault(grupo, []).append(exame)
 
+# Conexão com banco
+def get_db_connection():
+    return mysql.connector.connect(
+        host=st.secrets["mysql"]["host"],
+        database=st.secrets["mysql"]["database"],
+        user=st.secrets["mysql"]["user"],
+        password=st.secrets["mysql"]["password"],
+        port=st.secrets["mysql"]["port"]
+    )
+
+def generate_service_order():
+    return str(random.randint(10000000, 99999999))
+
+def get_par_exam_request(cpf_participant):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT ID_PARTICIPANT FROM PARTICIPANT WHERE CPF = %s", (cpf_participant,))
+    participant_id = cur.fetchone()
+    
+    if not participant_id:
+        return None, "❌ Participante não encontrado."
+    
+    cur.execute("""
+        SELECT PAR_EXAM_REQUEST FROM PAR_EXAM_REQUEST
+        WHERE ID_PARTICIPANT = %s AND STATUS = 'REQUESTED'
+        ORDER BY CREATED_AT DESC LIMIT 1
+    """, (participant_id[0],))
+    par_exam_request = cur.fetchone()
+    
+    cur.close()
+    conn.close()
+
+    if not par_exam_request:
+        return None, "❌ Nenhuma solicitação de exame pendente."
+    
+    return par_exam_request[0], None
+
+def get_or_update_service_order(parExamRequestId):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT SERVICE_ORDER FROM PAR_EXAM_REQUEST WHERE PAR_EXAM_REQUEST = %s", (parExamRequestId,))
+    service_order = cur.fetchone()
+
+    if service_order and service_order[0]:
+        cur.close()
+        conn.close()
+        return service_order[0]
+
+    new_service_order = generate_service_order()
+    cur.execute("UPDATE PAR_EXAM_REQUEST SET SERVICE_ORDER = %s WHERE PAR_EXAM_REQUEST = %s", (new_service_order, parExamRequestId))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return new_service_order
+
+# Login com secrets
+def login():
+    if "tentativa_login" not in st.session_state:
+        st.session_state["tentativa_login"] = False
+
+    with st.form("login_form"):
+        st.markdown("## 🔐 Acesso Restrito")
+        usuario = st.text_input("Usuário")
+        senha = st.text_input("Senha", type="password")
+        entrar = st.form_submit_button("Entrar")
+
+        if entrar:
+            usuario_valido = st.secrets["auth"]["usuario"]
+            senha_valida = st.secrets["auth"]["senha"]
+            if usuario == usuario_valido and senha == senha_valida:
+                st.session_state["logado"] = True
+            else:
+                st.session_state["tentativa_login"] = True
+
+    if st.session_state["tentativa_login"] and not st.session_state.get("logado", False):
+        st.error("Usuário ou senha incorretos.")
+
+# App principal
 def main():
     st.title("🩺 Resultados de Exames do CDL")
-
-    st.markdown("### 📌 Preencha os dados e gere o CSV")
-
     cpf = st.text_input("CPF do PP (somente números)", max_chars=11)
 
     if cpf:
+        par_exam_request, erro = get_par_exam_request(cpf)
+        if erro:
+            st.error(erro)
+            st.stop()
+
+        service_order = get_or_update_service_order(par_exam_request)
+
+        st.success("✅ Dados recuperados com sucesso.")
+        st.markdown(f"**📄 parExamRequestId:** `{par_exam_request}`")
+        st.markdown(f"**📄 serviceOrder:** `{service_order}`")
+
         st.markdown("### 🧪 Selecione os grupos de exame:")
         grupos_selecionados = {}
         for grupo in exames_por_grupo:
             grupos_selecionados[grupo] = st.checkbox(grupo)
 
         with st.form("form_exames"):
-            st.markdown("### ✍️ Preencha os resultados, somente o resultado sem unidade de medida:")
-            registros = []
+            st.markdown("### ✍️ Preencha os resultados:")
+            resultados = []
 
             for grupo, selecionado in grupos_selecionados.items():
                 if selecionado:
@@ -103,31 +193,59 @@ def main():
                     for exame in exames_por_grupo[grupo]:
                         resultado = st.text_input(f"{exame['Nome']}", key=exame["ID"])
                         if resultado:
-                            registros.append({
-                                "ID do Exame": exame["ID"],
-                                "Grupo": grupo,
-                                "Nome do Exame": exame["Nome"],
-                                "Resultado": resultado
+                            resultados.append({
+                                "examId": exame["ID"],
+                                "result": resultado
                             })
 
-            enviado = st.form_submit_button("Salvar e Baixar")
+            enviado = st.form_submit_button("Salvar e Enviar para a API")
 
         if enviado:
-            if not registros:
+            if not resultados:
                 st.warning("⚠️ Nenhum exame preenchido.")
             else:
-                df = pd.DataFrame(registros)
-                st.success("✅ Exames registrados! Faça o download abaixo.")
-                csv = df.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    label="📥 Baixar CSV",
-                    data=csv,
-                    file_name=f"{cpf}.csv",
-                    mime="text/csv"
-                )
-                st.stop()  # Encerra a execução e evita reprocessamento
-    else:
-        st.info("🔐 Por favor, insira o CPF e aperte Enter↵ para continuar.")
+                dados_json = [{
+                    "parExamRequestId": par_exam_request,
+                    "serviceOrder": service_order,
+                    "results": resultados
+                }]
 
-if __name__ == "__main__":
+                st.info("📡 Enviando dados para a API...")
+
+                try:
+                    response = requests.put(
+                        url=st.secrets["api"]["url"],
+                        json=dados_json,
+                        headers={
+                            "Content-Type": "application/json",
+                            "x-api-key": st.secrets["api"]["key"]
+                        },
+                        timeout=15
+                    )
+
+                    if response.status_code == 200:
+                        st.success("✅ Resultados enviados com sucesso!")
+                        try:
+                            st.json(response.json())
+                        except:
+                            st.info("Resposta recebida da API:")
+                            st.text(response.text)
+                    else:
+                        st.error(f"❌ Erro ao enviar dados. Código {response.status_code}")
+                        st.text(response.text)
+
+                except Exception as e:
+                    st.error(f"Erro de comunicação com a API: {str(e)}")
+
+                st.stop()
+    else:
+        st.info("🔐 Por favor, insira o CPF e aperte Enter ↵ para continuar.")
+
+# Controle de sessão
+if "logado" not in st.session_state:
+    st.session_state["logado"] = False
+
+if st.session_state["logado"]:
     main()
+else:
+    login()
