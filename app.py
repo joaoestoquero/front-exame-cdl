@@ -81,7 +81,7 @@ for exame in EXAMES:
     exames_por_grupo.setdefault(grupo, []).append(exame)
 
 def main():
-    st.title("🩺 Resultados de Exames CDL")
+    st.title("🩺 Resultados de Exames do CDL")
 
     st.markdown("### 📌 Preencha os dados e gere o CSV")
 
