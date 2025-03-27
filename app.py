@@ -1,6 +1,4 @@
 import streamlit as st
-import mysql.connector
-import random
 import requests
 import json
 
@@ -83,62 +81,6 @@ for exame in EXAMES:
     grupo = exame["Grupo"]
     exames_por_grupo.setdefault(grupo, []).append(exame)
 
-# Conexão com banco
-def get_db_connection():
-    return mysql.connector.connect(
-        host=st.secrets["mysql"]["host"],
-        database=st.secrets["mysql"]["database"],
-        user=st.secrets["mysql"]["user"],
-        password=st.secrets["mysql"]["password"],
-        port=st.secrets["mysql"]["port"]
-    )
-
-def generate_service_order():
-    return str(random.randint(10000000, 99999999))
-
-def get_par_exam_request(cpf_participant):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT ID_PARTICIPANT FROM PARTICIPANT WHERE CPF = %s", (cpf_participant,))
-    participant_id = cur.fetchone()
-    
-    if not participant_id:
-        return None, "❌ Participante não encontrado."
-    
-    cur.execute("""
-        SELECT PAR_EXAM_REQUEST FROM PAR_EXAM_REQUEST
-        WHERE ID_PARTICIPANT = %s AND STATUS = 'REQUESTED'
-        ORDER BY CREATED_AT DESC LIMIT 1
-    """, (participant_id[0],))
-    par_exam_request = cur.fetchone()
-    
-    cur.close()
-    conn.close()
-
-    if not par_exam_request:
-        return None, "❌ Nenhuma solicitação de exame pendente."
-    
-    return par_exam_request[0], None
-
-def get_or_update_service_order(parExamRequestId):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT SERVICE_ORDER FROM PAR_EXAM_REQUEST WHERE PAR_EXAM_REQUEST = %s", (parExamRequestId,))
-    service_order = cur.fetchone()
-
-    if service_order and service_order[0]:
-        cur.close()
-        conn.close()
-        return service_order[0]
-
-    new_service_order = generate_service_order()
-    cur.execute("UPDATE PAR_EXAM_REQUEST SET SERVICE_ORDER = %s WHERE PAR_EXAM_REQUEST = %s", (new_service_order, parExamRequestId))
-    conn.commit()
-    cur.close()
-    conn.close()
-
-    return new_service_order
-
 # Login com secrets
 def login():
     if "tentativa_login" not in st.session_state:
@@ -165,9 +107,7 @@ def login():
 def main():
     st.title("🩺 Resultados de Exames do CDL")
 
-    cpf = None
     par_exam_request = None
-    erro = None
     service_order = None
 
     with st.form("form_cpf"):
@@ -176,18 +116,35 @@ def main():
         buscar = st.form_submit_button("Buscar")
 
     if buscar:
-        cpf = cpf_input
-        par_exam_request, erro = get_par_exam_request(cpf)
+        with st.spinner("🔄 Buscando dados do participante..."):
+            try:
+                response = requests.post(
+                    url=st.secrets["api"]["url_base"] + "/par-exam-result-cdl/info-by-cpf",
+                    headers={"x-api-key": st.secrets["api"]["key"]},
+                    json={"cpf": cpf_input},
+                    timeout=10
+                )
 
-        if erro:
-            st.error(erro)
-            st.stop()
+                if response.status_code == 200:
+                    data = response.json()
+                    par_exam_request = data["parExamRequestId"]
+                    service_order = data["serviceOrder"]
 
-        service_order = get_or_update_service_order(par_exam_request)
+                    st.success("✅ Dados recuperados com sucesso.")
+                    st.markdown(f"**📄 parExamRequestId:** `{par_exam_request}`")
+                    st.markdown(f"**📄 serviceOrder:** `{service_order}`")
+                else:
+                    try:
+                        mensagem_erro = response.json().get("message", "Erro ao buscar dados.")
+                    except:
+                        mensagem_erro = "Erro ao buscar dados."
 
-        st.success("✅ Dados recuperados com sucesso.")
-        st.markdown(f"**📄 parExamRequestId:** `{par_exam_request}`")
-        st.markdown(f"**📄 serviceOrder:** `{service_order}`")
+                    st.error(f"❌ {mensagem_erro}")
+                    st.stop()
+
+            except Exception as e:
+                st.error(f"Erro de comunicação com a API: {str(e)}")
+                st.stop()
 
         st.markdown("### 🧪 Selecione os grupos de exame:")
         grupos_selecionados = {}
@@ -195,7 +152,7 @@ def main():
             grupos_selecionados[grupo] = st.checkbox(grupo)
 
         with st.form("form_exames"):
-            st.markdown("### ✍️ Preencha os resultados(somente valores sem ):")
+            st.markdown("### ✍️ Preencha os resultados (somente valores, sem ':' ou unidades):")
             resultados = []
 
             for grupo, selecionado in grupos_selecionados.items():
@@ -221,32 +178,35 @@ def main():
                     "results": resultados
                 }]
 
-                st.info("📡 Enviando dados para o SynviaBio...")
+                with st.spinner("📡 Enviando dados para o SynviaBio..."):
+                    try:
+                        response = requests.put(
+                            url=st.secrets["api"]["url"],
+                            json=dados_json,
+                            headers={
+                                "Content-Type": "application/json",
+                                "x-api-key": st.secrets["api"]["key"]
+                            },
+                            timeout=15
+                        )
 
-                try:
-                    response = requests.put(
-                        url=st.secrets["api"]["url"],
-                        json=dados_json,
-                        headers={
-                            "Content-Type": "application/json",
-                            "x-api-key": st.secrets["api"]["key"]
-                        },
-                        timeout=15
-                    )
+                        if response.status_code == 200:
+                            st.success("✅ Resultados enviados com sucesso!")
+                            try:
+                                st.json(response.json())
+                            except:
+                                st.info("Resposta recebida da API:")
+                                st.text(response.text)
+                        else:
+                            try:
+                                mensagem_erro = response.json().get("message", "Erro ao enviar dados.")
+                            except:
+                                mensagem_erro = "Erro ao enviar dados."
 
-                    if response.status_code == 200:
-                        st.success("✅ Resultados enviados com sucesso!")
-                        try:
-                            st.json(response.json())
-                        except:
-                            st.info("Resposta recebida da API:")
-                            st.text(response.text)
-                    else:
-                        st.error(f"❌ Erro ao enviar dados. Código {response.status_code}")
-                        st.text(response.text)
+                            st.error(f"❌ {mensagem_erro}")
 
-                except Exception as e:
-                    st.error(f"Erro de comunicação com a API: {str(e)}")
+                    except Exception as e:
+                        st.error(f"Erro de comunicação com a API: {str(e)}")
 
             st.stop()
     else:
