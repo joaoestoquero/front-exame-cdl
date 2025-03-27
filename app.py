@@ -1,6 +1,5 @@
 import streamlit as st
 import requests
-import json
 
 # Lista de exames
 EXAMES = [
@@ -107,8 +106,11 @@ def login():
 def main():
     st.title("🩺 Resultados de Exames do CDL")
 
-    par_exam_request = None
-    service_order = None
+    # Inicializa session_state
+    if "par_exam_request" not in st.session_state:
+        st.session_state["par_exam_request"] = None
+    if "service_order" not in st.session_state:
+        st.session_state["service_order"] = None
 
     with st.form("form_cpf"):
         st.markdown("### 🔎 Buscar Exames")
@@ -125,19 +127,25 @@ def main():
                     timeout=10
                 )
 
-                if response.status_code == 200:
+                if response.status_code in [200, 201]:
                     data = response.json()
-                    par_exam_request = data["parExamRequestId"]
-                    service_order = data["serviceOrder"]
+                    st.session_state["par_exam_request"] = data["data"].get("parExamRequestId")
+                    st.session_state["service_order"] = data["data"].get("serviceOrder")
 
                     st.success("✅ Dados recuperados com sucesso.")
-                    st.markdown(f"**📄 parExamRequestId:** `{par_exam_request}`")
-                    st.markdown(f"**📄 serviceOrder:** `{service_order}`")
+                    st.markdown(f"**📄 parExamRequestId:** `{st.session_state['par_exam_request']}`")
+                    st.markdown(f"**📄 serviceOrder:** `{st.session_state['service_order']}`")
                 else:
+                    mensagem_erro = f"Erro ao buscar dados. Código {response.status_code}"
                     try:
-                        mensagem_erro = response.json().get("message", "Erro ao buscar dados.")
+                        conteudo = response.json()
+                        if isinstance(conteudo, dict) and "message" in conteudo:
+                            mensagem_erro = conteudo["message"]
                     except:
-                        mensagem_erro = "Erro ao buscar dados."
+                        try:
+                            mensagem_erro = response.text
+                        except:
+                            pass
 
                     st.error(f"❌ {mensagem_erro}")
                     st.stop()
@@ -146,13 +154,17 @@ def main():
                 st.error(f"Erro de comunicação com a API: {str(e)}")
                 st.stop()
 
+    par_exam_request = st.session_state.get("par_exam_request")
+    service_order = st.session_state.get("service_order")
+
+    if par_exam_request and service_order:
         st.markdown("### 🧪 Selecione os grupos de exame:")
         grupos_selecionados = {}
         for grupo in exames_por_grupo:
             grupos_selecionados[grupo] = st.checkbox(grupo)
 
         with st.form("form_exames"):
-            st.markdown("### ✍️ Preencha os resultados (somente valores, sem ':' ou unidades):")
+            st.markdown("### ✍️ Preencha os resultados (somente valores, sem unidade de medida):")
             resultados = []
 
             for grupo, selecionado in grupos_selecionados.items():
@@ -197,11 +209,22 @@ def main():
                             except:
                                 st.info("Resposta recebida da API:")
                                 st.text(response.text)
+
+                            # Limpa dados após envio
+                            st.session_state.pop("par_exam_request", None)
+                            st.session_state.pop("service_order", None)
+
                         else:
+                            mensagem_erro = f"Erro ao enviar dados. Código {response.status_code}"
                             try:
-                                mensagem_erro = response.json().get("message", "Erro ao enviar dados.")
+                                conteudo = response.json()
+                                if isinstance(conteudo, dict) and "message" in conteudo:
+                                    mensagem_erro = conteudo["message"]
                             except:
-                                mensagem_erro = "Erro ao enviar dados."
+                                try:
+                                    mensagem_erro = response.text
+                                except:
+                                    pass
 
                             st.error(f"❌ {mensagem_erro}")
 
