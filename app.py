@@ -1,8 +1,8 @@
 import streamlit as st
 import requests
 
-# Lista de exames
-EXAMES = [
+# Lista de exames (cortada aqui para brevidade, mantenha sua lista completa original)
+EXAMES = EXAMES = [
     {"ID": "69347473316204", "Grupo": "BETA-HCG", "Nome": "BETA HCG"},
     {"ID": "161308206689966", "Grupo": "BIOQUÍMICA", "Nome": "FOSFATASE ALCALINA"},
     {"ID": "218896270091674", "Grupo": "BIOQUÍMICA", "Nome": "BILIRRUBINA DIRETA"},
@@ -106,7 +106,6 @@ def login():
 def main():
     st.title("🩺 Resultados de Exames do CDL")
 
-    # Inicializa session_state
     if "par_exam_request" not in st.session_state:
         st.session_state["par_exam_request"] = None
     if "service_order" not in st.session_state:
@@ -121,7 +120,7 @@ def main():
         with st.spinner("🔄 Buscando dados do participante..."):
             try:
                 response = requests.post(
-                    url=st.secrets["api"]["url_base"] + "/par-exam-result-cdl/info-by-cpf",
+                    url=st.secrets["api"]["url_base"] + "/par-exam-request/result-cdl/info-by-cpf",
                     headers={"x-api-key": st.secrets["api"]["key"]},
                     json={"cpf": cpf_input},
                     timeout=10
@@ -142,10 +141,7 @@ def main():
                         if isinstance(conteudo, dict) and "message" in conteudo:
                             mensagem_erro = conteudo["message"]
                     except:
-                        try:
-                            mensagem_erro = response.text
-                        except:
-                            pass
+                        mensagem_erro = response.text or mensagem_erro
 
                     st.error(f"❌ {mensagem_erro}")
                     st.stop()
@@ -192,8 +188,8 @@ def main():
 
                 with st.spinner("📡 Enviando dados para o SynviaBio..."):
                     try:
-                        response = requests.put(
-                            url=st.secrets["api"]["url"],
+                        response = requests.post(
+                            url=st.secrets["api"]["url_base"] + "/par-exam-request/result-cdl",
                             json=dados_json,
                             headers={
                                 "Content-Type": "application/json",
@@ -202,34 +198,24 @@ def main():
                             timeout=15
                         )
 
-                        if response.status_code == 200:
-                            st.success("✅ Resultados enviados com sucesso!")
-                            try:
-                                st.json(response.json())
-                            except:
-                                st.info("Resposta recebida da API:")
-                                st.text(response.text)
+                        # 🔍 Exibe log detalhado da resposta da API
+                        st.markdown("### 🔍 Log da resposta da API")
+                        st.write("Status code:", response.status_code)
 
-                            # Limpa dados após envio
+                        try:
+                            resposta_api = response.json()
+                            st.json(resposta_api)
+                        except Exception:
+                            st.text(response.text)
+                        if response.status_code in [200,201]:
+                            st.success("✅ Resultados enviados com sucesso!")
                             st.session_state.pop("par_exam_request", None)
                             st.session_state.pop("service_order", None)
-
                         else:
-                            mensagem_erro = f"Erro ao enviar dados. Código {response.status_code}"
-                            try:
-                                conteudo = response.json()
-                                if isinstance(conteudo, dict) and "message" in conteudo:
-                                    mensagem_erro = conteudo["message"]
-                            except:
-                                try:
-                                    mensagem_erro = response.text
-                                except:
-                                    pass
-
-                            st.error(f"❌ {mensagem_erro}")
+                            st.error("❌ O envio não foi bem-sucedido. Veja o log acima para detalhes.")
 
                     except Exception as e:
-                        st.error(f"Erro de comunicação com a API: {str(e)}")
+                        st.error(f"❌ Erro de comunicação com a API: {str(e)}")
 
             st.stop()
     else:
