@@ -1,7 +1,6 @@
 import streamlit as st
 import requests
 
-# Lista de exames (cortada aqui para brevidade, mantenha sua lista completa original)
 EXAMES = EXAMES = [
     {"ID": "69347473316204", "Grupo": "BETA-HCG", "Nome": "BETA HCG"},
     {"ID": "161308206689966", "Grupo": "BIOQUÍMICA", "Nome": "FOSFATASE ALCALINA"},
@@ -74,13 +73,11 @@ EXAMES = EXAMES = [
     {"ID": "99252312640714", "Grupo": "URINA TIPO I", "Nome": "URINA TIPO I - HEMÁCIAS"},
 ]
 
-# Agrupa os exames por grupo
 exames_por_grupo = {}
 for exame in EXAMES:
     grupo = exame["Grupo"]
     exames_por_grupo.setdefault(grupo, []).append(exame)
 
-# Login com secrets
 def login():
     if "tentativa_login" not in st.session_state:
         st.session_state["tentativa_login"] = False
@@ -102,7 +99,6 @@ def login():
     if st.session_state["tentativa_login"] and not st.session_state.get("logado", False):
         st.error("Usuário ou senha incorretos.")
 
-# App principal
 def main():
     st.title("🩺 Resultados de Exames do CDL")
 
@@ -198,10 +194,6 @@ def main():
                             timeout=15
                         )
 
-                        # 🔍 Exibe log detalhado da resposta da API
-                        st.markdown("### 🔍 Log da resposta da API")
-                        st.write("Status code:", response.status_code)
-
                         try:
                             resposta_api = response.json()
                             st.json(resposta_api)
@@ -221,7 +213,6 @@ def main():
     else:
         st.info("🔐 Por favor, insira o CPF e clique em 'Buscar' para continuar.")
 
-# Controle de sessão
 if "logado" not in st.session_state:
     st.session_state["logado"] = False
 
